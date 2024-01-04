@@ -53,7 +53,7 @@ func (c *mockEc2Client) DescribeInstances(in *ec2.DescribeInstancesInput) (*ec2.
 	}, nil
 }
 
-func newMockedEC2ProviderImpl() *ec2ProviderImpl {
+func newMockedEC2ProviderImpl(t *testing.T) *ec2ProviderImpl {
 	dnsCache := ec2PrivateDNSCache{
 		cache: make(map[string]string),
 		lock:  sync.RWMutex{},
@@ -62,8 +62,15 @@ func newMockedEC2ProviderImpl() *ec2ProviderImpl {
 		set:  make(map[string]bool),
 		lock: sync.RWMutex{},
 	}
+	client := func(t *testing.T) Ec2DescribeInstancesAPI {
+		return mockDescribeInstancesAPI(func(ctx context.Context, params *ec2.DescribeInstancesInput, optFns ...func(*ec2.Options)) (*ec2.DescribeInstancesOutput, error) {
+
+			return &ec2.DescribeInstancesOutput{}, nil
+		})
+	}
 
 	return &ec2ProviderImpl{
+		ec2:                client(t),
 		privateDNSCache:    dnsCache,
 		ec2Requests:        ec2Requests,
 		instanceIdsChannel: make(chan string, maxChannelSize),
@@ -72,7 +79,9 @@ func newMockedEC2ProviderImpl() *ec2ProviderImpl {
 
 func TestGetPrivateDNSName(t *testing.T) {
 	metrics.InitMetrics(prometheus.NewRegistry())
-	ec2Provider := newMockedEC2ProviderImpl()
+	ec2Provider := newMockedEC2ProviderImpl(t)
+	reservations := prepare100InstanceOutput()
+	ec2Provider.ec2 = &mockEc2Client{Reservations: reservations}
 	go ec2Provider.StartEc2DescribeBatchProcessing()
 	dns_name, err := ec2Provider.GetPrivateDNSName("ec2-1")
 	if err != nil {
@@ -104,7 +113,9 @@ func prepareSingleInstanceOutput() []types.Reservation {
 
 func TestGetPrivateDNSNameWithBatching(t *testing.T) {
 	metrics.InitMetrics(prometheus.NewRegistry())
-	ec2Provider := newMockedEC2ProviderImpl()
+	ec2Provider := newMockedEC2ProviderImpl(t)
+	reservations := prepare100InstanceOutput()
+	ec2Provider.ec2 = &mockEc2Client{Reservations: reservations}
 	go ec2Provider.StartEc2DescribeBatchProcessing()
 	var wg sync.WaitGroup
 	for i := 1; i < 101; i++ {
